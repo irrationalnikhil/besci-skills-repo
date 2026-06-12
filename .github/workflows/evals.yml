@@ -1,0 +1,49 @@
+name: skill-evals
+
+on:
+  pull_request:
+    paths:
+      - "skills/**"
+      - "evals/**"
+  workflow_dispatch:
+
+jobs:
+  promptfoo:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run eval suite
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          npx promptfoo@latest eval \
+            -c evals/promptfooconfig.yaml \
+            --output evals_output.json \
+            --no-cache
+
+      - name: Summarize results
+        if: always()
+        run: |
+          node -e '
+            const r = require("./evals_output.json");
+            const stats = r.results?.stats ?? r.stats ?? {};
+            console.log("Eval results:", JSON.stringify(stats));
+            const failures = (r.results?.results ?? []).filter(x => !x.success);
+            for (const f of failures) console.log("FAIL:", f.testCase?.description ?? "(unnamed)");
+            if (failures.length > 0) process.exit(1);
+          '
+
+      - name: Upload full results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: promptfoo-results
+          path: evals_output.json
